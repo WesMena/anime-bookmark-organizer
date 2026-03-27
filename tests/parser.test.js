@@ -62,4 +62,9 @@ describe('parseSeriesName', () => {
     expect(parseSeriesName('Frieren: Beyond Journey\'s End 2nd Season 1'))
       .toBe('Frieren: Beyond Journey\'s End 2nd Season');
   });
+
+  test('strips episode number after named season modifier (e.g. "FINAL SEASON 1")', () => {
+    expect(parseSeriesName('My Hero Academia FINAL SEASON 1'))
+      .toBe('My Hero Academia FINAL SEASON');
+  });
 });

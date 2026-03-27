@@ -34,12 +34,12 @@ export function parseSeriesName(title) {
   result = result.replace(/\s+S\d{1,2}E\d{1,2}/i, '');
 
   // 6. Strip trailing standalone number, but preserve if it IS the season/part number.
-  // Exception: "2nd Season 1", "3rd Part 2", etc. — the ordinal before Season/Part means
-  // the trailing number is an episode, not a season number — strip it.
+  // Exception: when Season/Part is preceded by an ordinal ("2nd Season 1") or a named
+  // modifier ("FINAL SEASON 1", "New Season 3"), the trailing number is an episode — strip it.
   // NOTE: This guard checks the string *at the end only* via the $ anchor.
   // Future steps must not change the trailing content, or this guard will silently fail.
-  const ordinalSeasonAtEnd = /\b\d+(?:st|nd|rd|th)\s+(?:Season|Part)\s+\d+\s*$/.test(result);
-  if (ordinalSeasonAtEnd || !/(?:Season|Part)\s+\d+\s*$/.test(result)) {
+  const namedSeasonAtEnd = /\b(?:\d+(?:st|nd|rd|th)|final|new|last|second|third|fourth|fifth|special)\s+(?:Season|Part)\s+\d+\s*$/i.test(result);
+  if (namedSeasonAtEnd || !/(?:Season|Part)\s+\d+\s*$/.test(result)) {
     result = result.replace(/\s+\d+\s*$/, '');
   }
 
