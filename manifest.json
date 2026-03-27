@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Anime Bookmark Organizer",
+  "version": "0.1.0",
+  "description": "Organize your anime bookmarks by series using MyAnimeList",
+  "permissions": ["bookmarks", "storage"],
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
