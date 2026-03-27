@@ -16,31 +16,32 @@ const sitePattern = new RegExp(
  * @returns {string}
  */
 export function parseSeriesName(title) {
-  let s = title;
+  let result = title;
 
   // 1. Strip Spanish streaming tags (everything from "Sub Español/Latino" onward)
-  s = s.replace(/\s+Sub\s+(Español|Latino).*/i, '');
+  result = result.replace(/\s+Sub\s+(Español|Latino).*/i, '');
 
   // 2. Strip known English site names after a dash, pipe, or em-dash
-  s = s.replace(sitePattern, '');
+  result = result.replace(sitePattern, '');
 
   // 3. Strip episode markers: "Episode N", "Ep. N", "Ep N" (English)
-  s = s.replace(/\s+Ep(?:isode)?\.?\s+\d+/i, '');
+  result = result.replace(/\s+Ep(?:isode)?\.?\s+\d+/i, '');
 
   // 4. Strip episode markers: "Episodio N" (Spanish)
-  s = s.replace(/\s+Episodio\s+\d+/i, '');
+  result = result.replace(/\s+Episodio\s+\d+/i, '');
 
   // 5. Strip compact format S##E##
-  s = s.replace(/\s+S\d{1,2}E\d{1,2}/i, '');
+  result = result.replace(/\s+S\d{1,2}E\d{1,2}/i, '');
 
   // 6. Strip trailing standalone number, but preserve if preceded by "Season" or "Part"
-  // Only strip if the string does NOT end with "Season N" or "Part N"
-  if (!/(?:Season|Part)\s+\d+\s*$/.test(s)) {
-    s = s.replace(/\s+\d+\s*$/, '');
+  // NOTE: This guard checks the string *at the end only* via the $ anchor.
+  // Future steps must not change the trailing content, or this guard will silently fail.
+  if (!/(?:Season|Part)\s+\d+\s*$/.test(result)) {
+    result = result.replace(/\s+\d+\s*$/, '');
   }
 
   // 7. Trim trailing punctuation and whitespace
-  s = s.replace(/[\s\-|–—:]+$/, '').trim();
+  result = result.replace(/[\s\-|–—:]+$/, '').trim();
 
-  return s;
+  return result;
 }
