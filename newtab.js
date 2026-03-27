@@ -279,4 +279,7 @@ async function init() {
   await loadAndRender(folderId);
 }
 
-init();
+// Only run in a real Chrome extension context — not in tests
+if (chrome.runtime?.id) {
+  init();
+}
