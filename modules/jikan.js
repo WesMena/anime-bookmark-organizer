@@ -40,17 +40,21 @@ export class JikanClient {
     this._running = true;
 
     while (this._queue.length > 0) {
-      const elapsed = Date.now() - this._lastRequestTime;
-      if (elapsed < this._minGapMs) await _sleep(this._minGapMs - elapsed);
-
       const item = this._queue[0];
       const result = await this._searchWithRetry(item.seriesName, 0);
       this._queue.shift();
-      this._lastRequestTime = Date.now();
       item.resolve(result);
     }
 
     this._running = false;
+  }
+
+  // Enforces the per-request rate limit gap before every individual fetch call.
+  async _rateLimitedFetch(url) {
+    const elapsed = Date.now() - this._lastRequestTime;
+    if (elapsed < this._minGapMs) await _sleep(this._minGapMs - elapsed);
+    this._lastRequestTime = Date.now();
+    return fetch(url);
   }
 
   async _searchWithRetry(seriesName, attempt) {
@@ -70,13 +74,13 @@ export class JikanClient {
     const q = encodeURIComponent(seriesName);
 
     // First attempt: type=tv
-    const r1 = await fetch(`${JIKAN_BASE}/anime?q=${q}&limit=1&type=tv`);
+    const r1 = await this._rateLimitedFetch(`${JIKAN_BASE}/anime?q=${q}&limit=1&type=tv`);
     if (r1.status === 429) throw { is429: true };
     const d1 = await r1.json();
     if (d1.data?.length > 0) return _extractMeta(d1.data[0]);
 
     // Fallback: no type filter (catches ONAs like "Cyberpunk: Edgerunners")
-    const r2 = await fetch(`${JIKAN_BASE}/anime?q=${q}&limit=1`);
+    const r2 = await this._rateLimitedFetch(`${JIKAN_BASE}/anime?q=${q}&limit=1`);
     if (r2.status === 429) throw { is429: true };
     const d2 = await r2.json();
     if (d2.data?.length > 0) return _extractMeta(d2.data[0]);

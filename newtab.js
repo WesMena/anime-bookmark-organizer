@@ -108,15 +108,15 @@ function renderEmptyState(message) {
   document.getElementById('bookmark-count').textContent = '';
 }
 
-function renderSidebar(entries, unmatchedBookmarks, onSelect) {
+function renderSidebar(entries, unmatchedBookmarks, onSelect, selectedKey) {
   const sidebar = document.getElementById('sidebar');
   sidebar.innerHTML = '';
   const allKeys = Object.keys(entries);
 
-  allKeys.forEach((key, i) => {
+  allKeys.forEach((key) => {
     const entry = entries[key];
     const row = document.createElement('div');
-    row.className = 'series-row' + (i === 0 ? ' active' : '');
+    row.className = 'series-row' + (key === selectedKey ? ' active' : '');
     row.dataset.key = key;
 
     const img = document.createElement('img');
@@ -208,6 +208,31 @@ async function populateFolderDropdown(selectedId) {
 
 // ─── Main load ────────────────────────────────────────────────────────────────
 
+function renderPage(grouped, cache, totalBookmarks) {
+  const entries = buildSeriesEntries(grouped, cache);
+  const unmatchedBookmarks = Object.keys(grouped)
+    .filter(k => !cache[k])
+    .flatMap(k => grouped[k]);
+
+  const seriesCount = Object.keys(entries).length + (unmatchedBookmarks.length > 0 ? 1 : 0);
+  document.getElementById('bookmark-count').textContent =
+    `${totalBookmarks} bookmarks · ${seriesCount} series`;
+
+  const allEntries = { ...entries };
+  if (unmatchedBookmarks.length > 0) {
+    allEntries['__unmatched__'] = { malId: null, title: 'Unmatched', imageUrl: null, bookmarks: unmatchedBookmarks };
+  }
+
+  // Preserve the active selection across re-renders
+  const activeRow = document.querySelector('#sidebar .series-row.active');
+  const activeKey = activeRow?.dataset.key;
+  const firstKey = Object.keys(allEntries)[0];
+  const selectedKey = (activeKey && allEntries[activeKey]) ? activeKey : firstKey;
+
+  renderSidebar(entries, unmatchedBookmarks, (key) => renderDetail(allEntries[key]), selectedKey);
+  if (selectedKey) renderDetail(allEntries[selectedKey]);
+}
+
 async function loadAndRender(folderId) {
   let bookmarkItems;
   try {
@@ -231,38 +256,27 @@ async function loadAndRender(folderId) {
   const isStale = await storage.getCacheStale();
 
   if (isStale) {
-    await resolveStaleCache(grouped, cache, (key) => jikan.fetchSeriesMeta(key));
-  }
-
-  // Fetch Jikan meta for any series not yet in cache (new series or unmatched retries)
-  const missingKeys = Object.keys(grouped).filter(k => !cache[k]);
-  await Promise.all(
-    missingKeys.map(async (key) => {
+    await resolveStaleCache(grouped, cache, (key) => {
       const searchName = parseSeriesName(grouped[key][0].title);
-      const meta = await jikan.fetchSeriesMeta(searchName);
-      if (meta) cache[key] = { ...meta, bookmarks: grouped[key] };
-    })
-  );
-  await storage.setSeriesCache(cache);
-
-  const entries = buildSeriesEntries(grouped, cache);
-  const unmatchedBookmarks = Object.keys(grouped)
-    .filter(k => !cache[k])
-    .flatMap(k => grouped[k]);
-
-  const seriesCount = Object.keys(entries).length + (unmatchedBookmarks.length > 0 ? 1 : 0);
-  document.getElementById('bookmark-count').textContent =
-    `${bookmarkItems.length} bookmarks · ${seriesCount} series`;
-
-  // Build combined entries map including unmatched sentinel for detail rendering
-  const allEntries = { ...entries };
-  if (unmatchedBookmarks.length > 0) {
-    allEntries['__unmatched__'] = { malId: null, title: 'Unmatched', imageUrl: null, bookmarks: unmatchedBookmarks };
+      return jikan.fetchSeriesMeta(searchName);
+    });
   }
 
-  const firstKey = Object.keys(allEntries)[0];
-  renderSidebar(entries, unmatchedBookmarks, (key) => renderDetail(allEntries[key]));
-  if (firstKey) renderDetail(allEntries[firstKey]);
+  // Render immediately with whatever is cached — fills in progressively
+  renderPage(grouped, cache, bookmarkItems.length);
+
+  // Fetch Jikan meta for series not yet cached; re-render as each arrives
+  const missingKeys = Object.keys(grouped).filter(k => !cache[k]);
+  for (const key of missingKeys) {
+    const searchName = parseSeriesName(grouped[key][0].title);
+    jikan.fetchSeriesMeta(searchName).then(async (meta) => {
+      if (meta) {
+        cache[key] = { ...meta, bookmarks: grouped[key] };
+        await storage.setSeriesCache(cache);
+        renderPage(grouped, cache, bookmarkItems.length);
+      }
+    });
+  }
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
