@@ -35,11 +35,9 @@ anime-bookmark-organizer/
 
 1. Load `selectedFolderId` from `chrome.storage.local`
 2. Populate folder dropdown with all top-level bookmark folders; pre-select saved folder
-3. Read all bookmarks from the selected folder
-4. Run each bookmark title through the parser to extract a series name
-5. Group bookmarks by series name
-6. For each series: check `seriesCache` in storage → cache hit renders immediately; cache miss queues a Jikan search
-7. Render sidebar (all series) + detail panel (first series selected by default)
+3. Read all bookmarks from the selected folder via `getBookmarksInFolder` and group by series name via `groupBySeriesName`
+4. For each series key: check `seriesCache` → cache hit renders immediately; cache miss (including series that were previously unmatched and thus never cached) queues a Jikan search. This means unmatched series are retried on every page load, since `null` results are never written to the cache.
+5. Render sidebar (all series) + detail panel (first series selected by default)
 
 ---
 
@@ -96,7 +94,7 @@ Exports: `fetchSeriesMeta(seriesName: string): Promise<SeriesMeta | null>`
 
 ### `bookmarks.js`
 
-- `getFolders()` → returns all direct-child folders of Chrome's three root nodes ("Bookmarks Bar", "Other Bookmarks", "Mobile Bookmarks"). Does not recurse deeper — only the first level of subfolders is shown in the dropdown.
+- `getFolders()` → calls `chrome.bookmarks.getTree()` and enumerates the children of root nodes by their fixed Chrome IDs (`"1"` = Bookmarks Bar, `"2"` = Other Bookmarks, `"3"` = Mobile Bookmarks), not by display name (which is locale-dependent). Returns all direct-child folder nodes from those three roots. Does not recurse deeper — only the first level of subfolders is shown in the dropdown.
 - `getBookmarksInFolder(folderId)` → flat list of all `BookmarkItem` objects in the folder (non-recursive; the folder is treated as flat). If `chrome.bookmarks.getChildren(folderId)` rejects (e.g., the folder was deleted), this function throws a `FolderNotFoundError`. `newtab.js` catches this error and renders the folder-deleted error state, prompting the user to re-select a folder.
 - `groupBySeriesName(bookmarks: BookmarkItem[])` → `Record<string, BookmarkItem[]>` using `parser.js`. The record key is the lowercased, trimmed parsed series name (for cache consistency). `BookmarkItem` conversion (picking `id`, `title`, `url` from the raw `chrome.bookmarks.BookmarkTreeNode`) happens inside this module.
 
@@ -178,13 +176,13 @@ interface BookmarkItem {
 - Scrollable list of episode bookmarks, each as a clickable row:
   - **Episode label:** the raw `BookmarkItem.title` (original bookmark title, unmodified)
   - **Site name:** derived from the bookmark URL hostname using a known-sites map (e.g., `crunchyroll.com` → "Crunchyroll", `jkanime.net` → "JkAnime", `animeflv.net` → "AnimeFLV", `funimation.com` → "Funimation", `hidive.com` → "HiDive"); falls back to the bare hostname if not in the map
-- Clicking an episode opens it in the current tab (the new tab page is replaced). Standard modifier-key behavior is preserved — Ctrl+click / middle-click opens in a new tab per browser defaults; no custom handling required.
+- Each episode row is rendered as an `<a>` element with `href` set to the bookmark URL. This ensures Ctrl+click / middle-click open in a new tab via browser defaults with no custom handling required. Clicking normally replaces the new tab page.
 
 ### States
 
 - **No folder selected (first install):** when `selectedFolderId` is null, show an empty state in the detail panel with a prompt ("Select a bookmarks folder above to get started") and no sidebar content
 - **Loading:** spinner/shimmer while Jikan fetches are in progress; already-cached series render immediately
-- **Unmatched:** amber warning row at the bottom of the sidebar; episodes still accessible in the detail panel
+- **Unmatched:** amber warning row at the bottom of the sidebar. When selected, the detail panel shows a placeholder cover, the title "Unmatched", a subtitle "These bookmarks couldn't be matched to a MyAnimeList series", and all unmatched bookmarks in a single flat episode list (no sub-grouping by series name).
 - **Empty folder:** friendly empty state with prompt "No bookmarks found in this folder. Try selecting a different one."
 
 ---
