@@ -57,4 +57,9 @@ describe('parseSeriesName', () => {
   test('strips AnimeFLV site name after Sub Español', () => {
     expect(parseSeriesName('One Piece Episodio 1100 Sub Español - AnimeFLV')).toBe('One Piece');
   });
+
+  test('strips episode number after ordinal season (e.g. "2nd Season 1")', () => {
+    expect(parseSeriesName('Frieren: Beyond Journey\'s End 2nd Season 1'))
+      .toBe('Frieren: Beyond Journey\'s End 2nd Season');
+  });
 });
