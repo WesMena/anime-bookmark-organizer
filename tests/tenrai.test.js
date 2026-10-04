@@ -1,9 +1,9 @@
 import { vi } from 'vitest';
-import { JikanClient } from '../modules/jikan.js';
+import { TenraiClient } from '../modules/tenrai.js';
 
 // Use minGapMs: 0 and retryDelayMs: 0 so tests don't incur real delays
 function makeClient() {
-  return new JikanClient({ minGapMs: 0, retryDelayMs: 0 });
+  return new TenraiClient({ minGapMs: 0, retryDelayMs: 0 });
 }
 
 function stubFetch(responses) {
@@ -21,7 +21,7 @@ function jsonResp(data, status = 200) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('JikanClient.fetchSeriesMeta', () => {
+describe('TenraiClient.fetchSeriesMeta', () => {
   test('returns meta from type=tv result', async () => {
     stubFetch([jsonResp({
       data: [{ mal_id: 21, title: 'One Piece', images: { jpg: { image_url: 'https://cdn.mal.net/op.jpg' } } }],

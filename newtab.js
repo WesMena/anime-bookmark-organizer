@@ -3,9 +3,9 @@ import {
   getBookmarksInFolder, getFolders, groupBySeriesName, FolderNotFoundError,
 } from './modules/bookmarks.js';
 import { parseSeriesName } from './modules/parser.js';
-import { JikanClient } from './modules/jikan.js';
+import { TenraiClient } from './modules/tenrai.js';
 
-const jikan = new JikanClient();
+const tenrai = new TenraiClient();
 
 const KNOWN_SITES = {
   'crunchyroll.com': 'Crunchyroll',
@@ -258,18 +258,18 @@ async function loadAndRender(folderId) {
   if (isStale) {
     await resolveStaleCache(grouped, cache, (key) => {
       const searchName = parseSeriesName(grouped[key][0].title);
-      return jikan.fetchSeriesMeta(searchName);
+      return tenrai.fetchSeriesMeta(searchName);
     });
   }
 
   // Render immediately with whatever is cached — fills in progressively
   renderPage(grouped, cache, bookmarkItems.length);
 
-  // Fetch Jikan meta for series not yet cached; re-render as each arrives
+  // Fetch Tenrai meta for series not yet cached; re-render as each arrives
   const missingKeys = Object.keys(grouped).filter(k => !cache[k]);
   for (const key of missingKeys) {
     const searchName = parseSeriesName(grouped[key][0].title);
-    jikan.fetchSeriesMeta(searchName).then(async (meta) => {
+    tenrai.fetchSeriesMeta(searchName).then(async (meta) => {
       if (meta) {
         cache[key] = { ...meta, bookmarks: grouped[key] };
         await storage.setSeriesCache(cache);
