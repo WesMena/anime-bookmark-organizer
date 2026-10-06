@@ -21,6 +21,11 @@ export function parseSeriesName(title) {
   // 1. Strip Spanish streaming tags (everything from "Sub Español/Latino" onward)
   result = result.replace(/\s+Sub\s+(Español|Latino).*/i, '');
 
+  // 1b. Strip site-added parenthetical qualifiers that contain "Anime"
+  // e.g. JkAnime appends "(Shinsaku Anime)" to disambiguate series versions;
+  // this is never part of the MAL title.
+  result = result.replace(/\s*\([^)]*\bAnime\b[^)]*\)/gi, '');
+
   // 2. Strip known English site names after a dash, pipe, or em-dash
   result = result.replace(sitePattern, '');
 

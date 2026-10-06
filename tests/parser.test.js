@@ -67,4 +67,9 @@ describe('parseSeriesName', () => {
     expect(parseSeriesName('My Hero Academia FINAL SEASON 1'))
       .toBe('My Hero Academia FINAL SEASON');
   });
+
+  test('strips parenthetical containing "Anime" added by streaming sites', () => {
+    expect(parseSeriesName('Pokemon (Shinsaku Anime) 142 Sub Español Online gratis — JkAnime'))
+      .toBe('Pokemon');
+  });
 });

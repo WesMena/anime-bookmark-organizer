@@ -7,6 +7,14 @@ import { TenraiClient } from './modules/tenrai.js';
 
 const tenrai = new TenraiClient();
 
+let currentView = 'list';
+try { if (localStorage.getItem('viewMode') === 'grid') currentView = 'grid'; } catch {}
+let currentSort = 'default';
+try { currentSort = localStorage.getItem('sortMode') || 'default'; } catch {}
+let currentNsfwFilter = 'all';
+try { currentNsfwFilter = localStorage.getItem('nsfwFilter') || 'all'; } catch {}
+let _lastRenderArgs = null;
+
 const KNOWN_SITES = {
   'crunchyroll.com': 'Crunchyroll',
   'funimation.com': 'Funimation',
@@ -99,6 +107,54 @@ function pluralize(count, word) {
   return `${count} ${word}${count !== 1 ? 's' : ''}`;
 }
 
+const RATING_CLASS = { G: 'g', PG: 'pg', 'PG-13': 'pg13', R: 'r', 'R+': 'rplus', Rx: 'rx' };
+function ratingBadgeHtml(rating) {
+  if (!rating) return '';
+  const cls = RATING_CLASS[rating] ?? 'unknown';
+  return `<span class="rating-badge rating-${cls}">${escapeHtml(rating)}</span>`;
+}
+
+function scoreBadgeHtml(score) {
+  if (score === null || score === undefined) return '';
+  return `<span class="score-badge">★ ${score.toFixed(2)}</span>`;
+}
+
+function nsfwBadgeHtml(isNsfw) {
+  return isNsfw ? `<span class="nsfw-badge">NSFW</span>` : '';
+}
+
+// ─── Filtering ───────────────────────────────────────────────────────────────
+
+function applyNsfwFilter(entries, filter) {
+  if (filter === 'all') return entries;
+  return Object.fromEntries(
+    Object.entries(entries).filter(([, e]) =>
+      filter === 'nsfw' ? e.isNsfw : !e.isNsfw
+    )
+  );
+}
+
+// ─── Sorting ─────────────────────────────────────────────────────────────────
+
+function applySort(entries, mode) {
+  if (mode === 'default') return entries;
+  const keys = Object.keys(entries);
+  const e = entries;
+  const toTime = (d) => d ? new Date(d).getTime() : 0;
+  const comparators = {
+    'alpha-asc':     (a, b) => e[a].title.localeCompare(e[b].title),
+    'alpha-desc':    (a, b) => e[b].title.localeCompare(e[a].title),
+    'episodes-asc':  (a, b) => e[a].bookmarks.length - e[b].bookmarks.length,
+    'episodes-desc': (a, b) => e[b].bookmarks.length - e[a].bookmarks.length,
+    'score-asc':     (a, b) => (e[a].score ?? -1) - (e[b].score ?? -1),
+    'score-desc':    (a, b) => (e[b].score ?? -1) - (e[a].score ?? -1),
+    'aired-asc':     (a, b) => toTime(e[a].airedFrom) - toTime(e[b].airedFrom),
+    'aired-desc':    (a, b) => toTime(e[b].airedFrom) - toTime(e[a].airedFrom),
+  };
+  keys.sort(comparators[mode] ?? (() => 0));
+  return Object.fromEntries(keys.map(k => [k, e[k]]));
+}
+
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
 function renderEmptyState(message) {
@@ -131,7 +187,12 @@ function renderSidebar(entries, unmatchedBookmarks, onSelect, selectedKey) {
     info.className = 'series-info';
     info.innerHTML = `
       <div class="series-name">${escapeHtml(entry.title)}</div>
-      <div class="series-ep-count">${pluralize(entry.bookmarks.length, 'episode')}</div>
+      <div class="series-meta">
+        <span class="series-ep-count">${pluralize(entry.bookmarks.length, 'episode')}</span>
+        ${scoreBadgeHtml(entry.score)}
+        ${ratingBadgeHtml(entry.rating)}
+        ${nsfwBadgeHtml(entry.isNsfw)}
+      </div>
     `;
 
     row.appendChild(img);
@@ -163,9 +224,9 @@ function renderSidebar(entries, unmatchedBookmarks, onSelect, selectedKey) {
   }
 }
 
-function renderDetail(entry) {
+function renderDetail(entry, container = document.getElementById('detail'), key = null) {
   const isUnmatched = entry.malId === null;
-  const detail = document.getElementById('detail');
+  const detail = container;
 
   detail.innerHTML = `
     <div class="detail-header">
@@ -175,7 +236,11 @@ function renderDetail(entry) {
       <div>
         <div class="detail-title">${escapeHtml(entry.title)}</div>
         ${isUnmatched ? `<div class="detail-subtitle">These bookmarks couldn't be matched to a MyAnimeList series.</div>` : ''}
-        <div class="ep-pill ${isUnmatched ? 'unmatched' : ''}">${pluralize(entry.bookmarks.length, 'pending episode')}</div>
+        <div class="detail-pills">
+          <div class="ep-pill ${isUnmatched ? 'unmatched' : ''}">${pluralize(entry.bookmarks.length, 'pending episode')}</div>
+          ${scoreBadgeHtml(entry.score)}
+          ${ratingBadgeHtml(entry.rating)}
+        </div>
       </div>
     </div>
     <div class="episodes-label">Pending Episodes</div>
@@ -189,6 +254,101 @@ function renderDetail(entry) {
       `).join('')}
     </div>
   `;
+
+  if (key && key !== '__unmatched__') {
+    const btn = document.createElement('button');
+    btn.className = `nsfw-toggle${entry.isNsfw ? ' nsfw-toggle--on' : ''}`;
+    btn.textContent = entry.isNsfw ? '✓ Marked as NSFW' : 'Mark as NSFW';
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!_lastRenderArgs) return;
+      const newValue = !entry.isNsfw;
+      _lastRenderArgs.cache[key] = { ..._lastRenderArgs.cache[key], isNsfw: newValue };
+      await storage.setSeriesCache(_lastRenderArgs.cache);
+      document.getElementById('series-modal')?.remove();
+      const { grouped, cache, totalBookmarks } = _lastRenderArgs;
+      renderPage(grouped, cache, totalBookmarks);
+    });
+    detail.querySelector('.detail-pills').appendChild(btn);
+  }
+}
+
+function renderGrid(allEntries) {
+  const detail = document.getElementById('detail');
+  detail.innerHTML = '';
+  for (const [key, entry] of Object.entries(allEntries)) {
+    const card = document.createElement('div');
+    card.className = 'grid-card' + (entry.malId === null ? ' unmatched' : '');
+    card.dataset.key = key;
+
+    const poster = document.createElement('div');
+    poster.className = 'grid-card-poster';
+    if (entry.imageUrl) {
+      const img = document.createElement('img');
+      img.src = entry.imageUrl;
+      img.alt = entry.title;
+      img.onerror = () => img.removeAttribute('src');
+      poster.appendChild(img);
+    }
+    if (entry.isNsfw) {
+      const badge = document.createElement('div');
+      badge.className = 'nsfw-overlay';
+      badge.textContent = 'NSFW';
+      poster.appendChild(badge);
+    }
+    card.appendChild(poster);
+
+    const info = document.createElement('div');
+    info.className = 'grid-card-info';
+    info.innerHTML = `
+      <div class="grid-card-title">${escapeHtml(entry.title)}</div>
+      <div class="series-meta">
+        <span class="grid-card-count">${pluralize(entry.bookmarks.length, 'episode')}</span>
+        ${scoreBadgeHtml(entry.score)}
+        ${ratingBadgeHtml(entry.rating)}
+      </div>
+    `;
+    card.appendChild(info);
+    card.addEventListener('click', () => showModal(entry, key));
+    detail.appendChild(card);
+  }
+
+  // Enlarge titles that fit on a single line so all info areas are the same height
+  requestAnimationFrame(() => {
+    detail.querySelectorAll('.grid-card-title').forEach(el => {
+      const lineH = parseFloat(getComputedStyle(el).lineHeight);
+      if (el.scrollHeight <= Math.ceil(lineH)) el.style.fontSize = '15px';
+    });
+  });
+}
+
+function showModal(entry, key = null) {
+  document.getElementById('series-modal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'series-modal';
+  overlay.className = 'modal-overlay';
+
+  const content = document.createElement('div');
+  content.className = 'modal-content';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'modal-close';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '✕';
+  content.appendChild(closeBtn);
+
+  renderDetail(entry, content, key);
+
+  overlay.appendChild(content);
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function onEsc(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onEsc); }
+  });
 }
 
 // ─── Folder dropdown ──────────────────────────────────────────────────────────
@@ -209,6 +369,8 @@ async function populateFolderDropdown(selectedId) {
 // ─── Main load ────────────────────────────────────────────────────────────────
 
 function renderPage(grouped, cache, totalBookmarks) {
+  _lastRenderArgs = { grouped, cache, totalBookmarks };
+
   const entries = buildSeriesEntries(grouped, cache);
   const unmatchedBookmarks = Object.keys(grouped)
     .filter(k => !cache[k])
@@ -218,19 +380,30 @@ function renderPage(grouped, cache, totalBookmarks) {
   document.getElementById('bookmark-count').textContent =
     `${totalBookmarks} bookmarks · ${seriesCount} series`;
 
-  const allEntries = { ...entries };
-  if (unmatchedBookmarks.length > 0) {
-    allEntries['__unmatched__'] = { malId: null, title: 'Unmatched', imageUrl: null, bookmarks: unmatchedBookmarks };
+  const sortedEntries = applySort(entries, currentSort);
+  const filteredEntries = applyNsfwFilter(sortedEntries, currentNsfwFilter);
+  const visibleUnmatched = currentNsfwFilter === 'nsfw' ? [] : unmatchedBookmarks;
+
+  const allEntries = { ...filteredEntries };
+  if (visibleUnmatched.length > 0) {
+    allEntries['__unmatched__'] = { malId: null, title: 'Unmatched', imageUrl: null, bookmarks: visibleUnmatched };
   }
 
-  // Preserve the active selection across re-renders
-  const activeRow = document.querySelector('#sidebar .series-row.active');
-  const activeKey = activeRow?.dataset.key;
-  const firstKey = Object.keys(allEntries)[0];
-  const selectedKey = (activeKey && allEntries[activeKey]) ? activeKey : firstKey;
-
-  renderSidebar(entries, unmatchedBookmarks, (key) => renderDetail(allEntries[key]), selectedKey);
-  if (selectedKey) renderDetail(allEntries[selectedKey]);
+  const main = document.getElementById('main');
+  if (currentView === 'grid') {
+    main.classList.add('grid-view');
+    document.getElementById('sidebar').innerHTML = '';
+    renderGrid(allEntries);
+  } else {
+    main.classList.remove('grid-view');
+    // Preserve the active selection across re-renders
+    const activeRow = document.querySelector('#sidebar .series-row.active');
+    const activeKey = activeRow?.dataset.key;
+    const firstKey = Object.keys(allEntries)[0];
+    const selectedKey = (activeKey && allEntries[activeKey]) ? activeKey : firstKey;
+    renderSidebar(filteredEntries, visibleUnmatched, (key) => renderDetail(allEntries[key], undefined, key), selectedKey);
+    if (selectedKey) renderDetail(allEntries[selectedKey], undefined, selectedKey);
+  }
 }
 
 async function loadAndRender(folderId) {
@@ -265,13 +438,16 @@ async function loadAndRender(folderId) {
   // Render immediately with whatever is cached — fills in progressively
   renderPage(grouped, cache, bookmarkItems.length);
 
-  // Fetch Tenrai meta for series not yet cached; re-render as each arrives
-  const missingKeys = Object.keys(grouped).filter(k => !cache[k]);
-  for (const key of missingKeys) {
+  // Fetch Tenrai meta for series not yet cached; re-render as each arrives.
+  // Also refetch entries cached before score/airedFrom were added (score === undefined).
+  const keysNeedingFetch = Object.keys(grouped).filter(
+    k => !cache[k] || !('rating' in cache[k])
+  );
+  for (const key of keysNeedingFetch) {
     const searchName = parseSeriesName(grouped[key][0].title);
     tenrai.fetchSeriesMeta(searchName).then(async (meta) => {
       if (meta) {
-        cache[key] = { ...meta, bookmarks: grouped[key] };
+        cache[key] = { ...cache[key], ...meta, bookmarks: grouped[key] };
         await storage.setSeriesCache(cache);
         renderPage(grouped, cache, bookmarkItems.length);
       }
@@ -281,7 +457,67 @@ async function loadAndRender(folderId) {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
+const ICON_LIST = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="3" width="12" height="2" rx="1" fill="currentColor"/>
+  <rect x="2" y="7" width="12" height="2" rx="1" fill="currentColor"/>
+  <rect x="2" y="11" width="12" height="2" rx="1" fill="currentColor"/>
+</svg>`;
+
+const ICON_GRID = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="2" width="5" height="5" rx="1" fill="currentColor"/>
+  <rect x="9" y="2" width="5" height="5" rx="1" fill="currentColor"/>
+  <rect x="2" y="9" width="5" height="5" rx="1" fill="currentColor"/>
+  <rect x="9" y="9" width="5" height="5" rx="1" fill="currentColor"/>
+</svg>`;
+
+function updateViewToggleBtn() {
+  const btn = document.getElementById('view-toggle');
+  if (currentView === 'grid') {
+    btn.innerHTML = ICON_LIST;
+    btn.title = 'Switch to list view';
+    btn.setAttribute('aria-label', 'Switch to list view');
+  } else {
+    btn.innerHTML = ICON_GRID;
+    btn.title = 'Switch to grid view';
+    btn.setAttribute('aria-label', 'Switch to grid view');
+  }
+}
+
 async function init() {
+  const sortSelect = document.getElementById('sort-select');
+  sortSelect.value = currentSort;
+  sortSelect.addEventListener('change', () => {
+    currentSort = sortSelect.value;
+    try { localStorage.setItem('sortMode', currentSort); } catch {}
+    if (_lastRenderArgs) {
+      const { grouped, cache, totalBookmarks } = _lastRenderArgs;
+      renderPage(grouped, cache, totalBookmarks);
+    }
+  });
+
+  const nsfwSelect = document.getElementById('nsfw-filter');
+  nsfwSelect.value = currentNsfwFilter;
+  nsfwSelect.addEventListener('change', () => {
+    currentNsfwFilter = nsfwSelect.value;
+    try { localStorage.setItem('nsfwFilter', currentNsfwFilter); } catch {}
+    if (_lastRenderArgs) {
+      const { grouped, cache, totalBookmarks } = _lastRenderArgs;
+      renderPage(grouped, cache, totalBookmarks);
+    }
+  });
+
+  const btn = document.getElementById('view-toggle');
+  updateViewToggleBtn();
+  btn.addEventListener('click', () => {
+    currentView = currentView === 'list' ? 'grid' : 'list';
+    try { localStorage.setItem('viewMode', currentView); } catch {}
+    updateViewToggleBtn();
+    if (_lastRenderArgs) {
+      const { grouped, cache, totalBookmarks } = _lastRenderArgs;
+      renderPage(grouped, cache, totalBookmarks);
+    }
+  });
+
   const folderId = await storage.getSelectedFolderId();
   await populateFolderDropdown(folderId);
 
