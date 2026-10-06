@@ -10,6 +10,23 @@
   <header id="topbar">
     <span class="app-title">Anime</span>
     <select id="folder-select"></select>
+    <select id="sort-select">
+      <option value="default">Default</option>
+      <option value="alpha-asc">A → Z</option>
+      <option value="alpha-desc">Z → A</option>
+      <option value="episodes-asc">Episodes ↑</option>
+      <option value="episodes-desc">Episodes ↓</option>
+      <option value="score-asc">Score ↑</option>
+      <option value="score-desc">Score ↓</option>
+      <option value="aired-asc">Airing date ↑</option>
+      <option value="aired-desc">Airing date ↓</option>
+    </select>
+    <select id="nsfw-filter">
+      <option value="all">All</option>
+      <option value="sfw">SFW only</option>
+      <option value="nsfw">NSFW only</option>
+    </select>
+    <button id="view-toggle" class="view-btn" title="Toggle grid view" aria-label="Toggle grid view"></button>
     <span id="bookmark-count"></span>
   </header>
   <div id="main">

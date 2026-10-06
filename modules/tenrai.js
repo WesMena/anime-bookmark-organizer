@@ -77,16 +77,44 @@ export class TenraiClient {
     const r1 = await this._rateLimitedFetch(`${TENRAI_BASE}/anime?q=${q}&limit=1&type=tv`);
     if (r1.status === 429) throw { is429: true };
     const d1 = await r1.json();
-    if (d1.data?.length > 0) return _extractMeta(d1.data[0]);
+    if (d1.data?.length > 0) {
+      const meta = _extractMeta(d1.data[0]);
+      if (_titlesAlign(meta.title, seriesName)) return meta;
+    }
 
     // Fallback: no type filter (catches ONAs like "Cyberpunk: Edgerunners")
     const r2 = await this._rateLimitedFetch(`${TENRAI_BASE}/anime?q=${q}&limit=1`);
     if (r2.status === 429) throw { is429: true };
     const d2 = await r2.json();
-    if (d2.data?.length > 0) return _extractMeta(d2.data[0]);
+    if (d2.data?.length > 0) {
+      const meta = _extractMeta(d2.data[0]);
+      if (_titlesAlign(meta.title, seriesName)) return meta;
+    }
+
+    // Fallback: strip ordinal/cardinal season suffix and retry with the base name.
+    // Handles cases like "Dorohedoro 2nd Season" where no such MAL entry exists.
+    const base = _stripSeason(seriesName);
+    if (base !== seriesName) return this._search(base);
 
     return null;
   }
+}
+
+// Returns true when the first significant word of the returned title matches
+// the first word of the search query, preventing obviously wrong results
+// (e.g. "GG Dou 2nd Season" returned for a "Dorohedoro 2nd Season" search).
+function _titlesAlign(resultTitle, searchName) {
+  const key = s => s.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  return key(resultTitle) === key(searchName);
+}
+
+// Strips a trailing ordinal or cardinal season marker so a retry can find the
+// base-series entry (e.g. "Dorohedoro 2nd Season" → "Dorohedoro").
+function _stripSeason(name) {
+  return name
+    .replace(/\s+\d+(?:st|nd|rd|th)\s+Season\s*$/i, '')
+    .replace(/\s+Season\s+\d+\s*$/i, '')
+    .trim();
 }
 
 function _extractMeta(anime) {
@@ -94,7 +122,16 @@ function _extractMeta(anime) {
     malId: anime.mal_id,
     title: anime.title,
     imageUrl: anime.images?.jpg?.image_url ?? null,
+    score: anime.score ?? null,
+    airedFrom: anime.aired?.from ?? null,
+    rating: _shortRating(anime.rating),
   };
+}
+
+function _shortRating(rating) {
+  if (!rating) return null;
+  const i = rating.indexOf(' - ');
+  return i >= 0 ? rating.slice(0, i) : rating;
 }
 
 function _sleep(ms) {
