@@ -41,6 +41,23 @@ export function getSiteName(url) {
   }
 }
 
+const PLATFORM_BADGES = {
+  AnimeFLV: { cls: 'flv', label: 'FLV' },
+  Crunchyroll: { cls: 'cr', label: 'CR' },
+  JkAnime: { cls: 'jk', label: 'JK' },
+};
+
+/**
+ * Returns the platform badge (CSS class + label) for a bookmark URL.
+ * Unknown sites get a "?" badge.
+ *
+ * @param {string} url
+ * @returns {{cls: string, label: string}}
+ */
+export function getPlatformBadge(url) {
+  return PLATFORM_BADGES[getSiteName(url)] ?? { cls: 'unknown', label: '?' };
+}
+
 /**
  * Merges grouped bookmarks with the cache to produce render-ready entries.
  * Only returns entries for series already in the cache (matched series).
@@ -289,6 +306,14 @@ function renderGrid(allEntries) {
       img.alt = entry.title;
       img.onerror = () => img.removeAttribute('src');
       poster.appendChild(img);
+    }
+    if (entry.bookmarks.length > 0) {
+      const { cls, label } = getPlatformBadge(entry.bookmarks[0].url);
+      const platform = document.createElement('div');
+      platform.className = `platform-badge platform-${cls}`;
+      platform.textContent = label;
+      platform.title = getSiteName(entry.bookmarks[0].url) || 'Unknown platform';
+      poster.appendChild(platform);
     }
     if (entry.isNsfw) {
       const badge = document.createElement('div');
